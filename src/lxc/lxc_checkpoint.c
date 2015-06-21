@@ -36,6 +36,10 @@ static bool stop = false;
 static bool verbose = false;
 static bool do_restore = false;
 static bool daemonize_set = false;
+static char *prev_checkpoint_dir = NULL;
+static bool do_pre_checkpoint = false;
+
+#define OPT_PREV_DIR OPT_VERSION - 1
 
 static const struct option my_longopts[] = {
 	{"checkpoint-dir", required_argument, 0, 'D'},
@@ -44,6 +48,8 @@ static const struct option my_longopts[] = {
 	{"restore", no_argument, 0, 'r'},
 	{"daemon", no_argument, 0, 'd'},
 	{"foreground", no_argument, 0, 'F'},
+	{"pre-checkpoint", no_argument, 0, 'p'},
+	{"prev-checkpoint-dir", required_argument, 0, OPT_PREV_DIR},
 	LXC_COMMON_OPTIONS
 };
 
@@ -91,6 +97,14 @@ static int my_parser(struct lxc_arguments *args, int c, char *arg)
 		args->daemonize = 0;
 		daemonize_set = true;
 		break;
+	case 'p':
+		do_pre_checkpoint = true;
+		break;
+	case OPT_PREV_DIR:
+		prev_checkpoint_dir = strdup(arg);
+		if (!prev_checkpoint_dir)
+			return -1;
+		break;
 	}
 	return 0;
 }
@@ -107,7 +121,9 @@ lxc-checkpoint checkpoints and restores a container\n\
 Options :\n\
   -n, --name=NAME           NAME for name of the container\n\
   -r, --restore             Restore container\n\
+  -p, --pre-checkpoint      Pre-checkpoint container\n\
   -D, --checkpoint-dir=DIR  directory to save the checkpoint in\n\
+  --prev-checkpoint-dir=DIR directory with previous checkpoint(relative to -D)\n\
   -v, --verbose             Enable verbose criu logs\n\
   Checkpoint options:\n\
   -s, --stop                Stop the container after checkpointing.\n\
@@ -131,11 +147,32 @@ bool checkpoint(struct lxc_container *c)
 		return false;
 	}
 
-	ret = c->checkpoint(c, checkpoint_dir, stop, verbose);
+	ret = c->checkpoint(c, checkpoint_dir, prev_checkpoint_dir, stop, verbose);
 	lxc_container_put(c);
 
 	if (!ret) {
 		fprintf(stderr, "Checkpointing %s failed.\n", my_args.name);
+		return false;
+	}
+
+	return true;
+}
+
+bool pre_checkpoint(struct lxc_container *c)
+{
+	bool ret;
+
+	if (!c->is_running(c)) {
+		fprintf(stderr, "%s not running, not pre-checkpointing.\n", my_args.name);
+		lxc_container_put(c);
+		return false;
+	}
+
+	ret = c->pre_checkpoint(c, checkpoint_dir, prev_checkpoint_dir, verbose);
+	lxc_container_put(c);
+
+	if (!ret) {
+		fprintf(stderr, "Pre-checkpointing %s failed.\n", my_args.name);
 		return false;
 	}
 
@@ -229,6 +266,8 @@ int main(int argc, char *argv[])
 
 	if (do_restore)
 		ret = restore(c);
+	else if (do_pre_checkpoint)
+		ret = pre_checkpoint(c);
 	else
 		ret = checkpoint(c);
 

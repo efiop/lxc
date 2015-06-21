@@ -53,6 +53,7 @@ struct criu_opts {
 	/* restore: the file to write the init process' pid into */
 	char *pidfile;
 	const char *cgroup_path;
+	char *prev_dir;
 };
 
 void exec_criu(struct criu_opts *opts);

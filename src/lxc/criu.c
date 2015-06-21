@@ -70,6 +70,13 @@ void exec_criu(struct criu_opts *opts)
 		/* --leave-running */
 		if (!opts->stop)
 			static_args++;
+	} else if (strcmp(opts->action, "pre-dump") == 0) {
+		/* -t pid */
+		static_args += 2;
+
+		/* --prev-images-dir */
+		if (opts->prev_dir)
+			static_args++;
 	} else if (strcmp(opts->action, "restore") == 0) {
 		/* --root $(lxc_mount_point) --restore-detached
 		 * --restore-sibling --pidfile $foo --cgroup-root $foo */
@@ -127,6 +134,11 @@ void exec_criu(struct criu_opts *opts)
 	DECLARE_ARG("-o");
 	DECLARE_ARG(log);
 
+	if (opts->prev_dir) {
+		DECLARE_ARG("--prev-images-dir");
+		DECLARE_ARG(opts->prev_dir);
+	}
+
 	if (opts->verbose)
 		DECLARE_ARG("-vvvvvv");
 
@@ -140,6 +152,14 @@ void exec_criu(struct criu_opts *opts)
 		DECLARE_ARG(pid);
 		if (!opts->stop)
 			DECLARE_ARG("--leave-running");
+	} else if (strcmp(opts->action, "pre-dump") == 0) {
+		char pid[32];
+
+		if (sprintf(pid, "%d", opts->c->init_pid(opts->c)) < 0)
+			goto err;
+
+		DECLARE_ARG("-t");
+		DECLARE_ARG(pid);
 	} else if (strcmp(opts->action, "restore") == 0) {
 		void *m;
 		int additional;

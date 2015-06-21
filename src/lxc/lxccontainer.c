@@ -380,6 +380,16 @@ static rettype fnname(struct lxc_container *c, t1 a1, t2 a2, t3 a3)	\
 	return ret;							\
 }
 
+#define WRAP_API_4(rettype, fnname, t1, t2, t3, t4)			\
+static rettype fnname(struct lxc_container *c, t1 a1, t2 a2, t3 a3, t4 a4)\
+{									\
+	rettype ret;							\
+	current_config = c ? c->lxc_conf : NULL;			\
+	ret = do_##fnname(c, a1, a2, a3, a4);				\
+	current_config = NULL;						\
+	return ret;							\
+}
+
 WRAP_API(bool, lxcapi_is_defined)
 
 static const char *do_lxcapi_state(struct lxc_container *c)
@@ -3712,7 +3722,7 @@ static bool do_lxcapi_detach_interface(struct lxc_container *c, const char *ifna
 
 WRAP_API_2(bool, lxcapi_detach_interface, const char *, const char *)
 
-static bool do_lxcapi_checkpoint(struct lxc_container *c, char *directory, bool stop, bool verbose)
+static bool do_lxcapi_checkpoint(struct lxc_container *c, char *directory, char *prev_dir, bool stop, bool verbose)
 {
 	pid_t pid;
 	int status;
@@ -3745,6 +3755,7 @@ static bool do_lxcapi_checkpoint(struct lxc_container *c, char *directory, bool 
 
 		os.action = "dump";
 		os.directory = directory;
+		os.prev_dir = prev_dir;
 		os.c = c;
 		os.stop = stop;
 		os.verbose = verbose;
@@ -3767,7 +3778,61 @@ static bool do_lxcapi_checkpoint(struct lxc_container *c, char *directory, bool 
 	}
 }
 
-WRAP_API_3(bool, lxcapi_checkpoint, char *, bool, bool)
+WRAP_API_4(bool, lxcapi_checkpoint, char *, char *, bool, bool)
+
+static bool do_lxcapi_pre_checkpoint(struct lxc_container *c, char *directory, char *prev_dir, bool verbose)
+{
+	pid_t pid;
+	int status;
+	char path[PATH_MAX];
+
+	if (!criu_ok(c))
+		return false;
+
+	if (mkdir(directory, 0700) < 0 && errno != EEXIST)
+		return false;
+
+	status = snprintf(path, sizeof(path), "%s/inventory.img", directory);
+	if (status < 0 || status >= sizeof(path))
+		return false;
+
+	if (access(path, F_OK) == 0) {
+		ERROR("please use a fresh directory for the dump directory\n");
+		return false;
+	}
+
+	pid = fork();
+	if (pid < 0)
+		return false;
+
+	if (pid == 0) {
+		struct criu_opts os;
+
+		os.action = "pre-dump";
+		os.directory = directory;
+		os.prev_dir = prev_dir;
+		os.c = c;
+		os.verbose = verbose;
+
+		/* exec_criu() returning is an error */
+		exec_criu(&os);
+		exit(1);
+	} else {
+		pid_t w = waitpid(pid, &status, 0);
+		if (w == -1) {
+			SYSERROR("waitpid");
+			return false;
+		}
+
+		if (WIFEXITED(status)) {
+			return !WEXITSTATUS(status);
+		}
+
+		return false;
+	}
+}
+
+WRAP_API_3(bool, lxcapi_pre_checkpoint, char *, char *, bool)
 
 static bool do_lxcapi_restore(struct lxc_container *c, char *directory, bool verbose)
 {
@@ -3966,6 +4031,7 @@ struct lxc_container *lxc_container_new(const char *name, const char *configpath
 	c->detach_interface = lxcapi_detach_interface;
 	c->checkpoint = lxcapi_checkpoint;
 	c->restore = lxcapi_restore;
+	c->pre_checkpoint = lxcapi_pre_checkpoint;
 
 	return c;
 

@@ -773,7 +773,7 @@ struct lxc_container {
 	 * \return \c true on success, else \c false.
 	 * present at compile time).
 	 */
-	bool (*checkpoint)(struct lxc_container *c, char *directory, bool stop, bool verbose);
+	bool (*checkpoint)(struct lxc_container *c, char *directory, char *prev_dir, bool stop, bool verbose);
 
 	/*!
 	 * \brief Restore a container from a checkpoint.
@@ -808,6 +808,19 @@ struct lxc_container {
 	bool (*snapshot_destroy_all)(struct lxc_container *c);
 
 	/* Post LXC-1.1 additions */
+
+	/*!
+	 * \brief Pre-checkpoint a container.
+	 *
+	 * \param c Container.
+	 * \param directory The directory to dump the container to.
+	 * \param prev_dir The directory with previous dump.
+	 * \param verbose Enable criu's verbose logs.
+	 *
+	 * \return \c true on success, else \c false.
+	 * present at compile time).
+	 */
+	bool (*pre_checkpoint)(struct lxc_container *c, char *directory, char *prev_dir, bool verbose);
 };
 
 /*!
